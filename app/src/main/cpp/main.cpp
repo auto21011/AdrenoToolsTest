@@ -282,11 +282,11 @@ void android_main( struct android_app *pApp )
 	// std::string dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
 	std::string srcFolder = pApp->activity->externalDataPath ? pApp->activity->externalDataPath : "";
 	std::string dstFolder = pApp->activity->internalDataPath ? pApp->activity->internalDataPath : "";
-#ifndef USE_QUALCOMM_DRIVER
+//#ifndef USE_QUALCOMM_DRIVER
 	const char *vulkanLibName = "libvulkan_freedreno.so";
-#else
-	const char *vulkanLibName = "vulkan.ad0667.so";
-#endif
+//#else
+//	const char *vulkanLibName = "vulkan.ad0667.so";
+//#endif
 
 	if( !srcFolder.empty() && srcFolder.back() != '/' )
 		srcFolder.push_back( '/' );
