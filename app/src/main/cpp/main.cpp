@@ -277,7 +277,7 @@ bool motion_event_filter_func( const GameActivityMotionEvent *motionEvent )
  */
 void android_main( struct android_app *pApp )
 {
-	//#define USE_QUALCOMM_DRIVER
+	#define USE_QUALCOMM_DRIVER
 	// std::string srcFolder = "/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/";
 	// std::string dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
 	std::string srcFolder = pApp->activity->externalDataPath ? pApp->activity->externalDataPath : "";
