@@ -314,7 +314,7 @@ void android_main( struct android_app *pApp )
 	std::string dstFolder = pApp->activity->internalDataPath ? pApp->activity->internalDataPath : "";
   const char *vulkanLibName = NULL;
 	const char *vulkanLibNameTurnip = "libvulkan_freedreno.so";
-	const char *vulkanLibNameQualcomm = "vulkan.ad0667.so";
+	const char *vulkanLibNameQualcomm = "vulkan.adreno.so";
 
 	if( !srcFolder.empty() && srcFolder.back() != '/' )
 		srcFolder.push_back( '/' );
@@ -383,8 +383,8 @@ void android_main( struct android_app *pApp )
 #endif
 #if 1
 		// Vulkan drivers from Qualcomm. i.e. v667-patched-adpkg.zip.
-		const char *filesToCopy[] = { "notadreno_utils.so", "notdmabufheap.so", "notgsl.so",
-									  "notllvm-glnext.so", "notllvm-qgl.so" };
+		const char *filesToCopy[] = { "notdmabufheap.so", "notgsl.so",
+									  "notllvm-glnext.so", "notllvm-qgl.so", "notadreno_utils.so" };
 #endif
 
 		for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
