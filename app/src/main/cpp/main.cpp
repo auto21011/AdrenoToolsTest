@@ -6,11 +6,16 @@
 #include "sds/sds_fstream.h"
 
 #include <sys/stat.h>
+#include <fstream>  // 用于读取配置文件
 
 #define VK_NO_PROTOTYPES
 #include <dlfcn.h>
 #include <vulkan/vulkan.h>
 #include "adrenotools/include/adrenotools/driver.h"
+#include "custom_log.h"
+
+// 全局变量，控制是否使用 Qualcomm 驱动，默认 0（不使用）
+int gUseQualcommDriver = 0;
 
 /** Copies a file from one folder into another. Dst folder must exist.
 	e.g.
@@ -45,12 +50,16 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder, const
 		{
 			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not write to file %s!\n",
 								 ( dstFolder + filename ).c_str() );
+			log_to_file( ANDROID_LOG_ERROR, "DriverReplacer", "Could not write to file %s!\n",
+						 ( dstFolder + filename ).c_str() );
 		}
 	}
 	else
 	{
 		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not open file %s!\n",
 							 ( srcFolder + filename ).c_str() );
+		log_to_file( ANDROID_LOG_ERROR, "DriverReplacer", "Could not open file %s!\n",
+					 ( srcFolder + filename ).c_str() );
 	}
 }
 
@@ -99,10 +108,12 @@ void testVulkan( void *libVulkan )
 	if( numDevices == 0 )
 	{
 		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!" );
+		log_to_file( ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!" );
 	}
 	else
 	{
 		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
+		log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
 
 		std::vector<VkPhysicalDevice> pd;
 		pd.resize( numDevices );
@@ -128,6 +139,16 @@ void testVulkan( void *libVulkan )
 								 VK_API_VERSION_PATCH( deviceProps.apiVersion ),  //
 								 driverVersionMajor, driverVersionMinor, driverVersionRelease,
 								 deviceProps.driverVersion );
+			log_to_file( ANDROID_LOG_INFO, "DriverReplacer",
+						 "Device %i: %s.\n"
+						 "Vulkan API %i.%i.%i\n"
+						 "Driver Version: %i.%i.%i (%u)",
+						 i, deviceProps.deviceName,
+						 VK_API_VERSION_MAJOR( deviceProps.apiVersion ),
+						 VK_API_VERSION_MINOR( deviceProps.apiVersion ),
+						 VK_API_VERSION_PATCH( deviceProps.apiVersion ),
+						 driverVersionMajor, driverVersionMinor, driverVersionRelease,
+						 deviceProps.driverVersion );
 		}
 	}
 
@@ -145,14 +166,20 @@ void loadOriginalVulkan()
 	{
 		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer",
 							 "Could not open original Vulkan: %s!\n", dlerror() );
+		log_to_file( ANDROID_LOG_ERROR, "DriverReplacer",
+					 "Could not open original Vulkan: %s!\n", dlerror() );
 		return;
 	}
 
 	__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
 						 "====== START TESTING ORIGINAL VULKAN DRIVER ======" );
+	log_to_file( ANDROID_LOG_INFO, "DriverReplacer",
+				 "====== START TESTING ORIGINAL VULKAN DRIVER ======" );
 	testVulkan( module );
 	__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
 						 "====== END TESTING ORIGINAL VULKAN DRIVER ======" );
+	log_to_file( ANDROID_LOG_INFO, "DriverReplacer",
+				 "====== END TESTING ORIGINAL VULKAN DRIVER ======" );
 	dlclose( module );
 }
 
@@ -183,11 +210,14 @@ void replaceDriver( const std::string &path, const char *hooksDir, const char *d
 		{
 			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer",
 								 "Could not load vulkan library : %s!\n", dlerror() );
+			log_to_file( ANDROID_LOG_ERROR, "DriverReplacer",
+						 "Could not load vulkan library : %s!\n", dlerror() );
 		}
 	}
 	else
 	{
 		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "DRIVER REPLACEMENT LOADED" );
+		log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "DRIVER REPLACEMENT LOADED" );
 		testVulkan( libVulkan );
 	}
 }
@@ -277,16 +307,14 @@ bool motion_event_filter_func( const GameActivityMotionEvent *motionEvent )
  */
 void android_main( struct android_app *pApp )
 {
-	//#define USE_QUALCOMM_DRIVER
+	// 原宏定义被移除，现在使用全局变量 gUseQualcommDriver
 	// std::string srcFolder = "/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/";
 	// std::string dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
 	std::string srcFolder = pApp->activity->externalDataPath ? pApp->activity->externalDataPath : "";
 	std::string dstFolder = pApp->activity->internalDataPath ? pApp->activity->internalDataPath : "";
-#ifndef USE_QUALCOMM_DRIVER
-	const char *vulkanLibName = "libvulkan_freedreno.so";
-#else
-	const char *vulkanLibName = "vulkan.ad0667.so";
-#endif
+  const char *vulkanLibName = NULL;
+	const char *vulkanLibNameTurnip = "libvulkan_freedreno.so";
+	const char *vulkanLibNameQualcomm = "vulkan.ad0667.so";
 
 	if( !srcFolder.empty() && srcFolder.back() != '/' )
 		srcFolder.push_back( '/' );
@@ -302,38 +330,84 @@ void android_main( struct android_app *pApp )
 						 "JNI libdir: %s\n",
 						 srcFolder.c_str(), dstFolder.c_str(), nativeLibraryDir.c_str() );
 
-#ifdef USE_QUALCOMM_DRIVER
-#	if 0
-	// Failed attempt at getting PowerVR to work.
-	const char *filesToCopy[] = { "libEGL_powervr.so",    "libGLESv1_CM_powervr.so",
-								  "libGLESv2_powervr.so", "libglslcompiler.so",
-								  "libIMGegl.so",         "libsrv_um.so",
-								  "libufwriter.so",       "libusc.so" };
-#	endif
-#	if 1
-	// Vulkan drivers from Qualcomm. i.e. v667-patched-adpkg.zip.
-	const char *filesToCopy[] = { "notadreno_utils.so", "notdmabufheap.so", "notgsl.so",
-								  "notllvm-glnext.so", "notllvm-qgl.so" };
-#	endif
+	log_to_file( ANDROID_LOG_INFO, "DriverReplacer",
+				 "Folders:\n"
+				 "SRC folder: %s\n"
+				 "DST folder: %s\n"
+				 "JNI libdir: %s\n",
+				 srcFolder.c_str(), dstFolder.c_str(), nativeLibraryDir.c_str() );
 
-	for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
-		copyFile( srcFolder, dstFolder, filesToCopy[i] );
+	// 初始化日志文件（存储在内部存储路径）
+	std::string logFilePath = srcFolder + "app.log";
+	log_init( logFilePath.c_str() );
 
-	for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
+	// 读取配置文件 driver_config.txt，决定是否启用 Qualcomm 驱动
+	std::string configPath = srcFolder + "driver_config.txt";
+	std::ifstream configFile( configPath.c_str() );
+	if( configFile.is_open() )
 	{
-		void *lib =
-			dlopen( ( std::string( dstFolder ) + filesToCopy[i] ).c_str(), RTLD_NOW | RTLD_LOCAL );
-		if( !lib )
+		char flag = 0;
+		configFile >> flag;
+		if( flag == '1' )
 		{
-			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not load %s!. Reason: %s",
-								 filesToCopy[i], dlerror() );
+			gUseQualcommDriver = 1;
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Qualcomm driver enabled by config" );
+			log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "Qualcomm driver enabled by config" );
 		}
 		else
 		{
-			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Loaded %s!", filesToCopy[i] );
+			gUseQualcommDriver = 0;
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Qualcomm driver disabled by config" );
+			log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "Qualcomm driver disabled by config" );
+		}
+		configFile.close();
+	}
+	else
+	{
+		gUseQualcommDriver = 0; // 默认 0
+		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Config file not found, using default (0)" );
+		log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "Config file not found, using default (0)" );
+	}
+
+  vulkanLibName = vulkanLibNameTurnip;
+	// 原宏替换为运行时条件判断
+	if( gUseQualcommDriver )
+  {
+    vulkanLibName = vulkanLibNameQualcomm;
+#if 0
+		// Failed attempt at getting PowerVR to work.
+		const char *filesToCopy[] = { "libEGL_powervr.so",    "libGLESv1_CM_powervr.so",
+									  "libGLESv2_powervr.so", "libglslcompiler.so",
+									  "libIMGegl.so",         "libsrv_um.so",
+									  "libufwriter.so",       "libusc.so" };
+#endif
+#if 1
+		// Vulkan drivers from Qualcomm. i.e. v667-patched-adpkg.zip.
+		const char *filesToCopy[] = { "notadreno_utils.so", "notdmabufheap.so", "notgsl.so",
+									  "notllvm-glnext.so", "notllvm-qgl.so" };
+#endif
+
+		for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
+			copyFile( srcFolder, dstFolder, filesToCopy[i] );
+
+		for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
+		{
+			void *lib =
+				dlopen( ( std::string( dstFolder ) + filesToCopy[i] ).c_str(), RTLD_NOW | RTLD_LOCAL );
+			if( !lib )
+			{
+				__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not load %s!. Reason: %s",
+									 filesToCopy[i], dlerror() );
+				log_to_file( ANDROID_LOG_ERROR, "DriverReplacer", "Could not load %s!. Reason: %s",
+							 filesToCopy[i], dlerror() );
+			}
+			else
+			{
+				__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Loaded %s!", filesToCopy[i] );
+				log_to_file( ANDROID_LOG_INFO, "DriverReplacer", "Loaded %s!", filesToCopy[i] );
+			}
 		}
 	}
-#endif
 
 	loadOriginalVulkan();
 	copyFile( srcFolder, dstFolder, vulkanLibName );
@@ -361,5 +435,8 @@ void android_main( struct android_app *pApp )
 			}
 		}
 	} while( !pApp->destroyRequested );
+
+	// 退出前关闭日志文件
+	log_close();
 }
 }
